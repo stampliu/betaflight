@@ -1310,7 +1310,8 @@ case MSP_NAME:
 
     case MSP_RC:
         for (int i = 0; i < rxRuntimeState.channelCount; i++) {
-            sbufWriteU16(dst, rcData[i]);
+            // sbufWriteU16(dst, rcData[i]);
+            sbufWriteU16(dst, rcDataReceived[i]);
         }
         break;
 

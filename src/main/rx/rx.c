@@ -124,7 +124,9 @@ static timeUs_t suspendRxSignalUntil = 0;
 static uint8_t  skipRxSamples = 0;
 
 static float rcRaw[MAX_SUPPORTED_RC_CHANNEL_COUNT];     // last received raw value, as it comes
+static float rcRawReceived[MAX_SUPPORTED_RC_CHANNEL_COUNT]; // last received raw value, as it comes, but not processed
 float rcData[MAX_SUPPORTED_RC_CHANNEL_COUNT];           // scaled, modified, checked and constrained values
+float rcDataReceived[MAX_SUPPORTED_RC_CHANNEL_COUNT]; // scaled, modified, checked and constrained values, but not processed
 uint32_t validRxSignalTimeout[MAX_SUPPORTED_RC_CHANNEL_COUNT];
 
 #define MAX_INVALID_PULSE_TIME_MS 300                   // hold time in milliseconds after bad channel or Rx link loss
@@ -300,10 +302,12 @@ void rxInit(void)
     uint32_t now = millis();
     for (int i = 0; i < MAX_SUPPORTED_RC_CHANNEL_COUNT; i++) {
         rcData[i] = rxConfig()->midrc;
+        rcDataReceived[i] = rxConfig()->midrc;
         validRxSignalTimeout[i] = now + MAX_INVALID_PULSE_TIME_MS;
     }
 
     rcData[THROTTLE] = (featureIsEnabled(FEATURE_3D)) ? rxConfig()->midrc : rxConfig()->rx_min_usec;
+    rcDataReceived[THROTTLE] = (featureIsEnabled(FEATURE_3D)) ? rxConfig()->midrc : rxConfig()->rx_min_usec;
 
     // Initialize ARM switch to OFF position when arming via switch is defined
     // TODO - move to rc_mode.c
@@ -319,6 +323,7 @@ void rxInit(void)
             }
             // Initialize ARM AUX channel to OFF value
             rcData[modeActivationCondition->auxChannelIndex + NON_AUX_CHANNEL_COUNT] = value;
+            rcDataReceived[modeActivationCondition->auxChannelIndex + NON_AUX_CHANNEL_COUNT] = value;
         }
     }
 
@@ -664,13 +669,16 @@ static void readRxChannelsApplyRanges(void)
 
         // sample the channel
         float sample;
+        float sampleReceived;
 #if defined(USE_RX_MSP_OVERRIDE)
         if (rxConfig()->msp_override_channels_mask) {
             sample = rxMspOverrideReadRawRc(&rxRuntimeState, rxConfig(), rawChannel);
+            sampleReceived = rxRuntimeState.rcReadRawFn(&rxRuntimeState, rawChannel);
         } else
 #endif
         {
             sample = rxRuntimeState.rcReadRawFn(&rxRuntimeState, rawChannel);
+            sampleReceived = sample;
         }
 
         // apply the rx calibration
@@ -679,6 +687,7 @@ static void readRxChannelsApplyRanges(void)
         }
 
         rcRaw[channel] = sample;
+        rcRawReceived[channel] = sampleReceived;
     }
 }
 
@@ -693,6 +702,7 @@ static void detectAndApplySignalLossBehaviour(void)
 
     for (int channel = 0; channel < rxChannelCount; channel++) {
         float sample = rcRaw[channel]; // sample has latest RC value, rcData has last 'accepted valid' value
+        float sampleReceived = rcRawReceived[channel]; // sampleReceived has latest RC value, rcDataReceived has last 'accepted valid' value
         const bool thisChannelValid = rxFlightChannelsValid && isPulseValid(sample);
         // if the whole packet is bad, or BOXFAILSAFE switch is actioned, consider all channels bad
         if (thisChannelValid) {
@@ -743,17 +753,20 @@ static void detectAndApplySignalLossBehaviour(void)
         }
 
         sample = constrainf(sample, PWM_PULSE_MIN, PWM_PULSE_MAX);
+        sampleReceived = constrainf(sampleReceived, PWM_PULSE_MIN, PWM_PULSE_MAX);
 
 #if defined(USE_RX_PWM) || defined(USE_RX_PPM)
         if (rxRuntimeState.rxProvider == RX_PROVIDER_PARALLEL_PWM || rxRuntimeState.rxProvider == RX_PROVIDER_PPM) {
             //  smooth output for PWM and PPM using moving average
             rcData[channel] = calculateChannelMovingAverage(channel, sample);
+            rcDataReceived[channel] = calculateChannelMovingAverage(channel, sampleReceived);
         } else
 #endif
 
         {
             //  set rcData to either validated incoming values, or failsafe-modified values
             rcData[channel] = sample;
+            rcDataReceived[channel] = sampleReceived;
         }
     }
 

@@ -84,6 +84,7 @@ typedef enum {
 extern const char rcChannelLetters[];
 
 extern float rcData[MAX_SUPPORTED_RC_CHANNEL_COUNT];       // interval [1000;2000]
+extern float rcDataReceived[MAX_SUPPORTED_RC_CHANNEL_COUNT]; // interval [1000;2000], received data, not processed
 
 #define RSSI_SCALE_MIN 1
 #define RSSI_SCALE_MAX 255
